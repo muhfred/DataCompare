@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using MongoDB.Bson;
 using MongoDB.Driver;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
@@ -18,34 +19,76 @@ namespace DataCompare.Api.Controllers
     [ApiController]
     public class CsvController : ControllerBase
     {
-        private readonly IMongoCollection<MongoRecord> _mongoCollection;
 
-        public CsvController(IMongoClient mongoClient)
+        [HttpPost("compareCsv")]
+        public async Task<ActionResult<CsvComparerResult>> UploadCsv(IFormFile file1, IFormFile file2)
         {
-            var database = mongoClient.GetDatabase("test");
-            _mongoCollection = database.GetCollection<MongoRecord>("testCollection");
-        }
-
-        [HttpPost("uploadCsv")]
-        public async Task<IActionResult> UploadCsv(IFormFile file)
-        {
-            if (file == null || file.Length == 0)
+            if (file1 == null || file1.Length == 0)
                 return BadRequest();
 
-            var filePath = Path.GetTempFileName();
+            if (file2 == null || file2.Length == 0)
+                return BadRequest();
 
-            using (var stream = new FileStream(filePath, FileMode.Create))
+            var filePath1 = Path.GetTempFileName();
+
+            using (var stream = new FileStream(filePath1, FileMode.Create))
             {
-                await file.CopyToAsync(stream);
+                await file1.CopyToAsync(stream);
             }
+            var filePath2 = Path.GetTempFileName();
 
-            var csvRecords = ReadCsv(filePath);
+            using (var stream = new FileStream(filePath2, FileMode.Create))
+            {
+                await file2.CopyToAsync(stream);
+            }
+            CsvComparerService comparerService = new();
 
-            var mongoRecords = await _mongoCollection.Find(x => true).ToListAsync();
+           var result = comparerService.Compare(filePath1, filePath2);
 
-            var diff = csvRecords.Where(csvRecord => !mongoRecords.Any(mongoRecord => mongoRecord.card_serial == csvRecord.card_serial)).ToList();
+            return Ok(result);
+        }
 
-            return Ok(diff);
+
+    }
+    public class CsvComparer : IEqualityComparer<CsvRecord>
+    {
+        public bool Equals(CsvRecord x, CsvRecord y)
+        {
+            return x.card_serial == y.card_serial;
+            // add additional fields as needed
+        }
+
+        public int GetHashCode(CsvRecord obj)
+        {
+            return obj.card_serial.GetHashCode() ^ obj.card_serial.GetHashCode();
+            // combine additional fields as needed
+        }
+    }
+
+    public class CsvComparerResult
+    {
+        public List<CsvRecord> onlyInFile1 { get; set; }
+        public List<CsvRecord> onlyInFile2 { get; set; }
+    }
+
+    public class CsvComparerService
+    {
+        public CsvComparerResult Compare(string filePath1, string filePath2)
+        {
+            var records1 = ReadCsv(filePath1);
+            var records2 = ReadCsv(filePath2);
+
+            var comparer = new CsvComparer();
+
+            var onlyInFile1 = records1.Except(records2, comparer).ToList();
+            var onlyInFile2 = records2.Except(records1, comparer).ToList();
+
+            return new CsvComparerResult
+            {
+                onlyInFile1 = onlyInFile1,
+                onlyInFile2 = onlyInFile2
+            };
+
         }
         private static List<CsvRecord> ReadCsv(string filePath)
         {
@@ -56,7 +99,7 @@ namespace DataCompare.Api.Controllers
                 var records = csv.GetRecords<CsvRecord>().ToList();
                 return records;
             }
-            
+
         }
     }
 }

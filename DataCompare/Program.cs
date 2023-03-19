@@ -13,7 +13,6 @@ namespace DataCompare
             var services = builder.Services;
             var config = builder.Configuration;
             // Add services to the container.
-            services.AddSingleton<IMongoClient>(new MongoClient("mongodb://localhost:27017"));
             builder.Services.AddControllers();
             // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
             builder.Services.AddEndpointsApiExplorer();
